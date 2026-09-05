@@ -1,107 +1,21 @@
-import { NextResponse } from "next/server";
-import { coachTurn } from "@/lib/coach-engine";
-import { detectObjection } from "@/lib/detect";
-import { llmConfigured, llmDebrief } from "@/lib/llm";
-import { discoveryLine, lineForObjection } from "@/lib/playbook";
-import { emitPrismTrace, prismConfigured } from "@/lib/prism";
-import { attachDebrief, getAccount, getBroker, saveCall } from "@/lib/store";
-import type { CallRecord, ObjectionCode, Turn } from "@/lib/types";
-
-export async function POST(req: Request) {
-  const started = Date.now();
-  const body = (await req.json()) as {
-    callId?: string;
-    accountId?: string;
-    brokerId?: string;
-    openerVariant?: CallRecord["openerVariant"];
-    sessionId?: string;
-    turns: Turn[];
-    synthetic?: boolean;
-  };
-
-  const turns = body.turns ?? [];
-  const account = body.accountId ? await getAccount(body.accountId) : undefined;
-  const broker = body.brokerId ? await getBroker(body.brokerId) : undefined;
-  const debrief = await llmDebrief(turns, account, broker);
-
-  const objections = [
-    ...new Set(
-      turns
-        .map((t) => detectObjection(t.text).code)
-        .filter((c): c is ObjectionCode => c !== "none"),
-    ),
-  ];
-
-  const call: CallRecord = {
-    id: body.callId ?? `live-${Date.now()}`,
-    accountId: body.accountId ?? "northwind",
-    brokerId: body.brokerId ?? "jordan",
-    startedAt: new Date().toISOString(),
-    endedAt: new Date().toISOString(),
-    openerVariant: body.openerVariant ?? "other",
-    turns,
-    stageReached: debrief.crm.stage,
-    outcome: debrief.outcome,
-    objections,
-    debrief,
-    synthetic: Boolean(body.synthetic),
-  };
-
-  const state = coachTurn(turns, account, broker);
-  const nextLine =
-    state.whisper ??
-    (state.objection !== "none"
-      ? lineForObjection(state.objection, account, broker)
-      : discoveryLine(account));
-
-  await saveCall(call);
-  await attachDebrief(call.id, debrief);
-  const latencyMs = Date.now() - started;
-
-  await emitPrismTrace({
-    model: llmConfigured() ? process.env.LLM_MODEL ?? "llm" : "binder-rule-debrief",
-    inputMessages: [
-      {
-        role: "system",
-        content:
-          "You are Binder, a post-call insurance sales coach. Summarize what happened, the outcome, coaching feedback, and CRM-safe facts without inventing policy details.",
-      },
-      {
-        role: "user",
-        content: JSON.stringify({
-          account,
-          broker,
-          transcript: turns,
-        }),
-      },
-    ],
-    outputMessage: JSON.stringify({
-      debrief,
-      nextLine,
-      crm: debrief.crm,
-    }),
-    latencyMs,
-    sessionId: body.sessionId ?? call.id,
-    agentId: "binder-post-call-analyst",
-    agentName: "Binder Post-call Analyst",
-    metadata: {
-      route: "/api/analyze",
-      callId: call.id,
-      accountId: call.accountId,
-      brokerId: call.brokerId,
-      stage: state.stage,
-      outcome: call.outcome,
-      objections,
-      synthetic: call.synthetic,
-      coachSource: llmConfigured() ? "llm_debrief" : "rule_debrief",
-    },
-  });
-
-  return NextResponse.json({
-    call,
-    debrief,
-    state,
-    nextLine,
-    prismConnected: prismConfigured(),
-  });
-}
+import {coachTurn} from '@/lib/coach-engine';
+import {detectObjection} from '@/lib/detect';
+import {llmDebrief} from '@/lib/llm';
+import {elevenModel} from '@/lib/elevenlabs';
+import {emitPrismTrace} from '@/lib/prism';
+import {getAccount,getBroker,getCall,getAgentEvents,saveCall} from '@/lib/store';
+import {apiError,requestSchema,sameOrigin} from '@/lib/validation';
+import type {CallRecord,ObjectionCode} from '@/lib/types';
+export const runtime='nodejs';
+export async function POST(req:Request){try{
+ sameOrigin(req);const body=requestSchema.parse(await req.json());const started=Date.now();const id=body.sessionId||crypto.randomUUID();
+ const existing=await getCall(id);if(existing?.debrief)return Response.json({call:existing,debrief:existing.debrief,state:coachTurn(existing.turns),nextLine:null});
+ const [account,broker]=await Promise.all([body.accountId?getAccount(body.accountId):undefined,body.brokerId?getBroker(body.brokerId):undefined]);
+ const debrief=await llmDebrief(body.turns,account,broker,id,body.useAgent!==false,body.meetingSlots);
+ const objections=[...new Set(body.turns.filter(t=>t.speaker!=='broker').map(t=>detectObjection(t.text).code).filter((c):c is ObjectionCode=>c!=='none'))];
+ const now=Date.now();const duration=Math.max(0,body.turns.at(-1)!.atMs-body.turns[0].atMs);
+ const call:CallRecord={id,accountId:account?.id||'unknown',brokerId:broker?.id||'unknown',startedAt:new Date(now-duration).toISOString(),endedAt:new Date(now).toISOString(),openerVariant:'other',turns:body.turns,stageReached:debrief.crm.stage,outcome:debrief.outcome,objections,debrief,synthetic:body.synthetic??false,agentEvents:await getAgentEvents(id)};
+ await saveCall(call);
+ const trace=await emitPrismTrace({model:debrief.source==='elevenlabs_agent'?elevenModel():'binder-rule-debrief',inputMessages:[{role:'user',content:JSON.stringify({account,broker,transcript:body.turns})}],outputMessage:JSON.stringify(debrief),latencyMs:Date.now()-started,sessionId:id,agentId:'binder-post-call-analyst',agentName:'Binder Post-call Analyst',metadata:{synthetic:call.synthetic,source:debrief.source,tool_events:call.agentEvents}});
+ return Response.json({call,debrief,state:coachTurn(body.turns,account,broker),nextLine:coachTurn(body.turns,account,broker).whisper,prismStatus:trace.status});
+ }catch(e){return apiError(e);}}

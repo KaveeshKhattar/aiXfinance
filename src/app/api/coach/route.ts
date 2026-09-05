@@ -1,72 +1,22 @@
-import { NextResponse } from "next/server";
-import { coachTurn } from "@/lib/coach-engine";
-import { llmConfigured, maybePolishWhisper } from "@/lib/llm";
-import { emitPrismTrace, prismConfigured } from "@/lib/prism";
-import { getAccount, getBroker } from "@/lib/store";
-import type { CoachRequest } from "@/lib/types";
-
-export async function POST(req: Request) {
-  const started = Date.now();
-  const body = (await req.json()) as CoachRequest;
-  const turns = body.turns ?? [];
-  const account = body.accountId ? await getAccount(body.accountId) : undefined;
-  const broker = body.brokerId ? await getBroker(body.brokerId) : undefined;
-  const state = coachTurn(turns, account, broker);
-  const transcriptTail = turns
-    .slice(-6)
-    .map((turn) => `${turn.speaker}: ${turn.text}`)
-    .join("\n");
-  const whisper =
-    state.whisper && transcriptTail
-      ? await maybePolishWhisper(state.whisper, transcriptTail)
-      : state.whisper;
-  const accountHint = account
-    ? `${account.name} · ${account.decisionMaker ?? "DM unknown"} · renews ${account.renewalMonth ?? "?"} · last: ${account.lastObjection?.replace(/_/g, " ") ?? "none"}`
-    : null;
-  const latencyMs = Date.now() - started;
-  const coachSource = whisper && llmConfigured() ? "llm_polished" : "local_playbook";
-
-  await emitPrismTrace({
-    model: coachSource === "llm_polished" ? process.env.LLM_MODEL ?? "llm" : "binder-local-playbook",
-    inputMessages: [
-      {
-        role: "system",
-        content:
-          "You are Binder, a real-time insurance sales coach. Give one immediately usable line or stay silent. Never invent pricing, coverage, carriers, or policy facts.",
-      },
-      {
-        role: "user",
-        content: JSON.stringify({
-          account,
-          broker,
-          transcriptTail,
-        }),
-      },
-    ],
-    outputMessage: whisper ?? "SILENT",
-    latencyMs,
-    sessionId: body.sessionId,
-    agentId: "binder-live-coach",
-    agentName: "Binder Live Coach",
-    metadata: {
-      route: "/api/coach",
-      accountId: body.accountId,
-      brokerId: body.brokerId,
-      stage: state.stage,
-      speaker: state.speaker,
-      objection: state.objection,
-      objectionKind: state.objectionKind,
-      intervention: state.intervention,
-      coachSource,
-    },
-  });
-
-  return NextResponse.json({
-    ...state,
-    whisper,
-    accountHint,
-    latencyMs,
-    coachSource,
-    prismConnected: prismConfigured(),
-  });
-}
+import {coachTurn} from '@/lib/coach-engine';
+import {elevenConfigured,elevenModel,runAgent} from '@/lib/elevenlabs';
+import {emitPrismTrace,prismConfigured} from '@/lib/prism';
+import {getAccount,getBroker,appendAgentEvents} from '@/lib/store';
+import {apiError,requestSchema,sameOrigin} from '@/lib/validation';
+export const runtime='nodejs';
+export async function POST(req:Request){try{
+ sameOrigin(req);const body=requestSchema.parse(await req.json());const started=Date.now();
+ const [account,broker]=await Promise.all([body.accountId?getAccount(body.accountId):undefined,body.brokerId?getBroker(body.brokerId):undefined]);
+ let state=coachTurn(body.turns,account,broker,body.coachingLevel||'standard'),coachSource='local_playbook',warning:string|undefined;
+ let events:import('@/lib/types').AgentEvent[]=[];
+ if(body.useAgent){if(!elevenConfigured())throw Error('ElevenLabs key is missing. Configure it or choose Local rehearsal.');try{const result=await runAgent(body.sessionId||crypto.randomUUID(),'coach',body.turns,account,broker,body.meetingSlots);events=result.events;coachSource='elevenlabs_agent';
+   // Keep the agentic trace, but never let an overly conservative model hide a
+   // deterministic meeting-progress cue. Local playbook remains the safe floor.
+   const local=coachTurn(body.turns,account,broker,body.coachingLevel||'standard');state={...state,...(result.state||{}),whisper:result.state?.whisper||local.whisper,intervention:!!(result.state?.whisper||local.whisper),reason:result.state?.whisper?result.state.reason:local.reason};
+   if(!result.state?.whisper&&local.whisper)coachSource='elevenlabs_agent+local_safety_floor';
+ }catch(e){warning=e instanceof Error?e.message:'Agent failed';coachSource='local_fallback';}}
+ const latencyMs=Date.now()-started;
+ if(events.length&&body.sessionId)await appendAgentEvents(body.sessionId,events);
+ const trace=await emitPrismTrace({model:coachSource==='elevenlabs_agent'?elevenModel():'binder-local-playbook',inputMessages:[{role:'user',content:JSON.stringify({account,broker,turns:body.turns})}],outputMessage:JSON.stringify(state),latencyMs,sessionId:body.sessionId,agentId:'binder-live-coach',agentName:'Binder Live Coach',metadata:{coachSource,synthetic:body.synthetic,tool_events:events,warning}});
+ return Response.json({...state,accountHint:account?`${account.name} · ${account.decisionMaker||'Decision maker unknown'} · ${account.notes}`:null,latencyMs,coachSource,warning,agentEvents:events,prismConfigured:prismConfigured(),prismStatus:trace.status});
+ }catch(e){return apiError(e);}}

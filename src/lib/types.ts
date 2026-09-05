@@ -12,6 +12,7 @@ export type SpeakerRole =
   | "unknown";
 
 export type Momentum = "cold" | "neutral" | "warming" | "hot";
+export type CoachingLevel = "beginner" | "standard" | "expert";
 
 export type CallOutcome =
   | "meeting_booked"
@@ -36,7 +37,7 @@ export type ObjectionCode =
   | "price_shopping"
   | "none";
 
-export type ObjectionKind = "reflex" | "genuine" | "none";
+export type ObjectionKind = "reflex" | "genuine" | "uncertain" | "none";
 
 export type Turn = {
   speaker: SpeakerRole;
@@ -97,6 +98,7 @@ export type CallRecord = {
   objections: ObjectionCode[];
   debrief: Debrief | null;
   synthetic: boolean;
+  agentEvents?: AgentEvent[];
 };
 
 export type Debrief = {
@@ -106,7 +108,10 @@ export type Debrief = {
   whatDidnt: string;
   oneThingToImprove: string;
   crm: CrmWriteback;
-  inventedNothing: true;
+  inventedNothing: boolean;
+  source?: string;
+  warning?: string;
+  evidence?: { turn: number; quote: string }[];
 };
 
 export type CrmWriteback = {
@@ -125,7 +130,12 @@ export type CoachRequest = {
   brokerId?: string;
   sessionId?: string;
   turns: Turn[];
+  useAgent?: boolean;
+  synthetic?: boolean;
+  meetingSlots?: string[];
 };
+
+export type AgentEvent = { tool: string; input: unknown; output: unknown; at: number };
 
 export type CoachResponse = ConversationState & {
   accountHint: string | null;

@@ -31,19 +31,14 @@ export function prismConfigured(): boolean {
   return Boolean(projectId && apiKey);
 }
 
-function roughTokenCount(value: string): number {
-  return Math.ceil(value.split(/\s+/).filter(Boolean).length * 1.3);
-}
-
-export async function emitPrismTrace(trace: PrismTrace): Promise<void> {
+export async function emitPrismTrace(trace: PrismTrace): Promise<{status:'not_configured'|'sent'|'failed'}> {
   const { host, projectId, apiKey } = prismConfig();
-  if (!projectId || !apiKey) return;
-
-  const inputText = trace.inputMessages.map((m) => m.content).join("\n");
+  if (!projectId || !apiKey) return {status:'not_configured'};
 
   try {
     const res = await fetch(`${host}/api/traces`, {
       method: "POST",
+      signal: AbortSignal.timeout(4000),
       headers: {
         "Content-Type": "application/json",
         "X-PRISMtrace-Key": apiKey,
@@ -58,8 +53,6 @@ export async function emitPrismTrace(trace: PrismTrace): Promise<void> {
         user_identifier: trace.userIdentifier,
         agent_id: trace.agentId,
         agent_name: trace.agentName,
-        token_count_input: roughTokenCount(inputText),
-        token_count_output: roughTokenCount(trace.outputMessage),
         metadata: {
           app: "binder",
           ...trace.metadata,
@@ -68,9 +61,12 @@ export async function emitPrismTrace(trace: PrismTrace): Promise<void> {
     });
 
     if (!res.ok) {
-      console.warn("PRISM trace failed", res.status, await res.text());
+      console.warn("PRISM trace failed", res.status);
+      return {status:'failed'};
     }
-  } catch (error) {
-    console.warn("PRISM trace failed", error);
+    return {status:'sent'};
+  } catch {
+    console.warn("PRISM trace failed");
+    return {status:'failed'};
   }
 }

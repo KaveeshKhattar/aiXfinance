@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     "Real-time coaching for insurance brokers. Glanceable. Quiet. One line.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: {children:React.ReactNode}) {
   return (
     <html
       lang="en"

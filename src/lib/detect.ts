@@ -92,7 +92,7 @@ const OBJECTIONS: { code: ObjectionCode; patterns: string[]; kind: ObjectionKind
     },
     {
       code: "all_set",
-      kind: "reflex",
+      kind: "uncertain",
       patterns: [
         "we're all set",
         "we are all set",
@@ -156,6 +156,7 @@ const OBJECTIONS: { code: ObjectionCode; patterns: string[]; kind: ObjectionKind
   ];
 
 const SOFT_YES = [
+  "sounds good", "a short meeting", "yes let's", "yes lets",
   "that could work",
   "i could do",
   "thursday might",

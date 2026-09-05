@@ -9,11 +9,13 @@ import {
 import { shouldIntervene } from "./intervention";
 import { closeLine, discoveryLine, lineForObjection } from "./playbook";
 import { countFillers, wordCount } from "./normalize";
+import { callOutcome, meetingEvidence } from './outcome';
 import type {
   Account,
   BrokerProfile,
   ConversationState,
   SpeakerRole,
+  CoachingLevel,
   Turn,
 } from "./types";
 
@@ -36,14 +38,12 @@ export function coachTurn(
   turns: Turn[],
   account?: Account | null,
   broker?: BrokerProfile | null,
+  level: CoachingLevel = "standard",
 ): ConversationState {
   const last = turns[turns.length - 1];
-  const labeled: Turn[] = turns.map((t, i) => {
+  const labeled: Turn[] = turns.map((t) => {
     if (t.speaker !== "unknown") return t;
-    const prev: SpeakerRole =
-      i > 0 ? turns[i - 1].speaker : "broker";
-    const fallback: SpeakerRole = prev === "broker" ? "gatekeeper" : "broker";
-    return { ...t, speaker: detectSpeaker(t.text, fallback) };
+    return { ...t, speaker: detectSpeaker(t.text, "unknown") };
   });
 
   const latest = labeled[labeled.length - 1] ?? last;
@@ -52,15 +52,27 @@ export function coachTurn(
   const obj = prospect
     ? detectObjection(prospect.text)
     : { code: "none" as const, kind: "none" as const };
-  const softYes = labeled.some((t) => detectSoftYes(t.text));
-  const buying = labeled.some((t) => detectBuyingSignal(t.text));
+  const softYes = labeled.some((t) => t.speaker !== 'broker' && detectSoftYes(t.text));
+  const buying = labeled.some((t) => t.speaker !== 'broker' && detectBuyingSignal(t.text));
   const stage = inferStage(labeled, speaker);
   const momentum = inferMomentum(labeled, softYes, buying);
-  const { intervene, reason } = shouldIntervene(labeled);
+  const { intervene, reason } = shouldIntervene(labeled, level);
 
   let whisper: string | null = null;
   if (intervene) {
-    if (reason === "soft_yes_stop_selling" || reason === "broker_still_selling_after_yes") {
+    if(reason==='product_scope_question') {
+      whisper='We help businesses review their commercial insurance program. I’m not quoting on this call — who handles that review?';
+    } else if (reason === 'unverified_product_fact') {
+      whisper = 'Don’t guess on coverage or price. Acknowledge the question, then ask what they are trying to solve and who handles the review.';
+    } else if (reason === 'prospect_question') {
+      whisper = stage === 'gatekeeper'
+        ? lineForObjection('what_regarding', account, broker)
+        : discoveryLine(account);
+    } else if (reason === 'beginner_next_move') {
+      whisper = stage === 'gatekeeper' ? lineForObjection('what_regarding', account, broker) : discoveryLine(account);
+    } else if(reason==='respect_refusal') {
+      whisper='Understood. Thank you for your time.';
+    } else if (reason === "soft_yes_stop_selling" || reason === "broker_still_selling_after_yes") {
       whisper = closeLine(account);
     } else if (reason === "rambling") {
       whisper =
@@ -107,11 +119,7 @@ export function coachTurn(
 export function ruleDebrief(turns: Turn[], account?: Account | null) {
   const state = coachTurn(turns, account);
   const reachedDm = turns.some((t) => t.speaker === "decision_maker");
-  const outcome = state.softYes
-    ? ("meeting_booked" as const)
-    : reachedDm
-      ? ("no_meeting" as const)
-      : ("gatekeeper_block" as const);
+  const outcome = callOutcome(turns);
 
   const whatWorked =
     state.stage === "discovery" || state.stage === "close"
@@ -129,7 +137,7 @@ export function ruleDebrief(turns: Turn[], account?: Account | null) {
     state.talkListen.brokerWords > state.talkListen.prospectWords * 1.4
       ? "Talk less. Ask the renewal question and wait."
       : outcome !== "meeting_booked"
-        ? "Ask for Thursday or Friday before hanging up."
+        ? "Ask for one clear next step when interest is expressed; respect a refusal."
         : "Stop selling the moment they agree to a time.";
 
   return {
@@ -145,7 +153,7 @@ export function ruleDebrief(turns: Turn[], account?: Account | null) {
       outcome,
       nextStep:
         outcome === "meeting_booked"
-          ? "Hold the 12-minute meeting; no new pitch on this call."
+          ? "Confirm the full date, timezone and invitation email."
           : "Follow up on renewal date only. Do not resend the same pitch.",
       renewal: account?.renewalMonth ?? null,
       objections:
@@ -154,5 +162,7 @@ export function ruleDebrief(turns: Turn[], account?: Account | null) {
         "Facts limited to what was said on the call and prior account record. No coverage or pricing claimed.",
     },
     inventedNothing: true as const,
+    source: 'local_rules',
+    evidence: meetingEvidence(turns) === null ? [] : [{turn: meetingEvidence(turns)!, quote: turns[meetingEvidence(turns)!].text}],
   };
 }
