@@ -9,12 +9,14 @@ export function sameOrigin(req:Request){
  if(!origin)return;
  let parsed:URL;
  try{parsed=new URL(origin);}catch{throw Error('Cross-origin request rejected');}
- // Next dev may be opened as either localhost or 127.0.0.1. Both are
- // loopback origins; accept only those exact local hosts and the app port.
  const requestUrl=new URL(req.url);
+ // Allow loopback (local dev on any port)
  const loopback=(parsed.hostname==='localhost'||parsed.hostname==='127.0.0.1'||parsed.hostname==='[::1]')
    && (parsed.protocol==='http:'||parsed.protocol==='https:');
  const requestLoopback=requestUrl.hostname==='localhost'||requestUrl.hostname==='127.0.0.1'||requestUrl.hostname==='[::1]';
- if(!loopback||!requestLoopback||parsed.port!==requestUrl.port)throw Error('Cross-origin request rejected');
+ if(loopback&&requestLoopback&&parsed.port===requestUrl.port)return;
+ // Allow same host in production (e.g. Vercel deployment)
+ if(parsed.hostname===requestUrl.hostname&&parsed.protocol===requestUrl.protocol)return;
+ throw Error('Cross-origin request rejected');
 }
 export function apiError(error:unknown){const validation=error instanceof z.ZodError;return Response.json({error:validation?'Invalid input. Check transcript and required fields.':error instanceof Error?error.message:'Request failed'},{status:validation?400:503});}
