@@ -5,7 +5,13 @@ import { ruleDebrief } from "./coach-engine";
 import type { Account, BrokerProfile, CallRecord, Debrief } from "./types";
 import type {AgentEvent} from './types';
 
-const DIR = path.join(process.cwd(), "data");
+// On Vercel (and other read-only serverless platforms) the project root is
+// read-only.  All mutable data is written to /tmp instead so the process can
+// still read and write JSON without crashing.
+const IS_VERCEL = Boolean(process.env.VERCEL);
+const DIR = IS_VERCEL
+  ? path.join("/tmp", "binder-data")
+  : path.join(process.cwd(), "data");
 const FILES = {
   accounts: path.join(DIR, "accounts.json"),
   brokers: path.join(DIR, "brokers.json"),
