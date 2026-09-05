@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   };
   const account = body.accountId ? await getAccount(body.accountId) : undefined;
   const broker = body.brokerId ? await getBroker(body.brokerId) : undefined;
-  const line = await suggestOpener(account, broker);
+  const line = suggestOpener(account, broker);
   const latencyMs = Date.now() - started;
 
   await emitPrismTrace({
