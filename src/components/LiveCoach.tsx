@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { coachTurn } from "@/lib/coach-engine";
+import { detectSpeaker } from "@/lib/detect";
 import { SCENARIOS } from "@/lib/seed";
 import { ACCOUNTS, BROKERS } from "@/lib/seed";
 import type {
@@ -9,6 +10,7 @@ import type {
   BrokerProfile,
   ConversationState,
   Debrief,
+  SpeakerRole,
   Turn,
 } from "@/lib/types";
 
@@ -32,6 +34,7 @@ export function LiveCoach() {
   const [debrief, setDebrief] = useState<Debrief | null>(null);
   const [callId, setCallId] = useState<string | null>(null);
   const recRef = useRef<SpeechRecognition | null>(null);
+  const micNextSpeaker = useRef<SpeakerRole>("broker");
   const timers = useRef<number[]>([]);
 
   const scenario = SCENARIOS.find((s) => s.id === scenarioId)!;
@@ -60,10 +63,23 @@ export function LiveCoach() {
         }),
       })
         .then((r) => r.json())
-        .then((remote: ConversationState & { accountHint?: string }) => {
+        .then(
+          (
+            remote: ConversationState & {
+              accountHint?: string;
+              coachSource?: "local_playbook" | "llm_polished";
+              latencyMs?: number;
+            },
+          ) => {
           setState(remote);
           if (remote.accountHint) setAccountHint(remote.accountHint);
-        })
+          if (remote.latencyMs !== undefined) {
+            const source =
+              remote.coachSource === "llm_polished" ? "LLM polished" : "local playbook";
+            setAudioStatus(`${source} · ${remote.latencyMs}ms`);
+          }
+        },
+        )
         .catch(() => undefined);
     },
     [account, broker],
@@ -158,6 +174,7 @@ export function LiveCoach() {
     setState(null);
     setAudioStatus("Microphone listening");
     setMode("mic");
+    micNextSpeaker.current = "broker";
     const acc = ACCOUNTS.find((a) => a.id === "harbor");
     const br = BROKERS.find((b) => b.id === brokerId);
     const rec = new Ctor();
@@ -171,10 +188,21 @@ export function LiveCoach() {
       }
       text = text.trim();
       if (!text) return;
+      const expected = micNextSpeaker.current;
+      const speaker =
+        expected === "broker"
+          ? detectSpeaker(text, "broker")
+          : detectSpeaker(text, "decision_maker");
+      micNextSpeaker.current = speaker === "broker" ? "decision_maker" : "broker";
+      setAudioStatus(
+        speaker === "broker"
+          ? "Heard broker. Waiting for prospect..."
+          : `Heard ${speaker.replace(/_/g, " ")}. Coaching next line...`,
+      );
       setTurns((prev) => {
         const next: Turn[] = [
           ...prev,
-          { speaker: "unknown", text, atMs: Date.now() },
+          { speaker, text, atMs: Date.now() },
         ];
         applyTurns(next, acc, br);
         return next;
