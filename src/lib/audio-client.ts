@@ -3,7 +3,7 @@ export async function startScribe(stream:MediaStream,onText:(text:string)=>void,
  const context=new AudioContext({sampleRate:16000});let socket:WebSocket|undefined,node:AudioWorkletNode|undefined;let stopped=false;
  const stop=async()=>{if(stopped)return;stopped=true;node?.disconnect();socket?.close();stream.getTracks().forEach(t=>t.stop());await context.close();};
  try{
- const response=await fetch('/api/elevenlabs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'scribe-token'})});const data=await response.json();if(!response.ok)throw Error(data.error);
+ const response=await fetch('/api/elevenlabs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'scribe-token'})});if(!response.ok){let msg='Failed to get scribe token';try{const d=await response.json();msg=d.error||msg;}catch{}throw Error(msg);}const data=await response.json();
  await context.audioWorklet.addModule('/pcm-worklet.js');
  socket=new WebSocket('wss://api.elevenlabs.io/v1/speech-to-text/realtime?'+new URLSearchParams({token:data.token,model_id:'scribe_v2_realtime',audio_format:'pcm_16000',commit_strategy:'vad',vad_silence_threshold_secs:'0.7',language_code:'en'}));
  await new Promise<void>((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('Speech connection timed out')),15000);

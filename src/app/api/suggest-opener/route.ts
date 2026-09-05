@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { llmConfigured, suggestOpener } from "@/lib/llm";
 import { emitPrismTrace, prismConfigured } from "@/lib/prism";
 import { getAccount, getBroker } from "@/lib/store";
+import { apiError } from "@/lib/validation";
 
 export async function POST(req: Request) {
+  try {
   const started = Date.now();
   const body = (await req.json()) as {
     accountId?: string;
@@ -47,4 +49,7 @@ export async function POST(req: Request) {
   });
 
   return NextResponse.json({ line, prismConnected: prismConfigured() });
+  } catch (e) {
+    return apiError(e);
+  }
 }

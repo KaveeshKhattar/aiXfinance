@@ -8,7 +8,7 @@ import type {Account,AgentEvent,ConversationState,Debrief,SpeakerRole,Turn} from
 
 type Mode='idle'|'replay'|'mic'|'typed'|'finishing'|'done';
 type Remote=ConversationState & {coachSource:string;warning?:string;agentEvents?:AgentEvent[];latencyMs:number;prismStatus:string};
-async function api(url:string,body?:unknown){const r=await fetch(url,body===undefined?undefined:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw Error(d.error||'Request failed');return d;}
+async function api(url:string,body?:unknown){const r=await fetch(url,body===undefined?undefined:{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok){let msg='Request failed';try{const d=await r.json();msg=d.error||msg;}catch{}throw Error(msg);}return r.json();}
 export function LiveCoach(){
  const [mode,setMode]=useState<Mode>('idle'),[scenarioId,setScenarioId]=useState(SCENARIOS[0].id),[accountId,setAccountId]=useState('acme'),[brokerId,setBrokerId]=useState('priya');
  const [accounts,setAccounts]=useState<Account[]>(ACCOUNTS),[configured,setConfigured]=useState(false),[useAgent,setUseAgent]=useState(true),[voiceReplay,setVoiceReplay]=useState(true),[spoken,setSpoken]=useState(false),[captureMode,setCaptureMode]=useState('microphone');
