@@ -123,6 +123,7 @@ export type CrmWriteback = {
 export type CoachRequest = {
   accountId?: string;
   brokerId?: string;
+  sessionId?: string;
   turns: Turn[];
 };
 

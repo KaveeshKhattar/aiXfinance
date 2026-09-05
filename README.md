@@ -43,6 +43,18 @@ LLM_MODEL=gpt-4o-mini
 
 Copy `.env.example` to `.env.local`.
 
+## Optional PRISM tracing
+
+Binder can send live coach and post-call debrief traces to PRISM by BlockConvey. Create a PRISM project, generate an ingest key, then set:
+
+```bash
+PRISMTRACE_HOST=https://prism.blockconvey.com
+PRISMTRACE_PROJECT_ID=...
+PRISMTRACE_API_KEY=pt-sk-...
+```
+
+When configured, `/api/coach` emits one trace per live coaching decision and `/api/analyze` emits the post-call debrief trace with the same `session_id`.
+
 ## Stack
 
 Next.js 16 · TypeScript · local JSON memory in `/data` (created on first API call) · Web Speech API for mic

@@ -35,6 +35,7 @@ export function LiveCoach() {
   const [callId, setCallId] = useState<string | null>(null);
   const recRef = useRef<SpeechRecognition | null>(null);
   const micNextSpeaker = useRef<SpeakerRole>("broker");
+  const sessionId = useRef(`binder-${Date.now()}`);
   const timers = useRef<number[]>([]);
 
   const scenario = SCENARIOS.find((s) => s.id === scenarioId)!;
@@ -59,6 +60,7 @@ export function LiveCoach() {
         body: JSON.stringify({
           accountId: acc?.id,
           brokerId: br?.id,
+          sessionId: sessionId.current,
           turns: next,
         }),
       })
@@ -69,6 +71,7 @@ export function LiveCoach() {
               accountHint?: string;
               coachSource?: "local_playbook" | "llm_polished";
               latencyMs?: number;
+              prismConnected?: boolean;
             },
           ) => {
           setState(remote);
@@ -76,7 +79,8 @@ export function LiveCoach() {
           if (remote.latencyMs !== undefined) {
             const source =
               remote.coachSource === "llm_polished" ? "LLM polished" : "local playbook";
-            setAudioStatus(`${source} · ${remote.latencyMs}ms`);
+            const prism = remote.prismConnected ? " · PRISM trace" : "";
+            setAudioStatus(`${source} · ${remote.latencyMs}ms${prism}`);
           }
         },
         )
@@ -123,6 +127,7 @@ export function LiveCoach() {
         body: JSON.stringify({
           accountId: accId,
           brokerId: brId,
+          sessionId: sessionId.current,
           turns: finalTurns,
           openerVariant: "B",
           synthetic,
@@ -142,6 +147,7 @@ export function LiveCoach() {
     setTurns([]);
     setState(null);
     setAudioStatus(null);
+    sessionId.current = `binder-replay-${scenario.id}-${Date.now()}`;
     setMode("live");
     const acc = ACCOUNTS.find((a) => a.id === scenario.accountId);
     const br = BROKERS.find((b) => b.id === brokerId) ?? BROKERS.find((b) => b.id === scenario.brokerId);
@@ -174,6 +180,7 @@ export function LiveCoach() {
     setState(null);
     setAudioStatus("Microphone listening");
     setMode("mic");
+    sessionId.current = `binder-mic-${Date.now()}`;
     micNextSpeaker.current = "broker";
     const acc = ACCOUNTS.find((a) => a.id === "harbor");
     const br = BROKERS.find((b) => b.id === brokerId);

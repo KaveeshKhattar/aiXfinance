@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { coachTurn } from "@/lib/coach-engine";
 import { llmConfigured, maybePolishWhisper } from "@/lib/llm";
+import { emitPrismTrace, prismConfigured } from "@/lib/prism";
 import { getAccount, getBroker } from "@/lib/store";
 import type { CoachRequest } from "@/lib/types";
 
@@ -22,11 +23,50 @@ export async function POST(req: Request) {
   const accountHint = account
     ? `${account.name} · ${account.decisionMaker ?? "DM unknown"} · renews ${account.renewalMonth ?? "?"} · last: ${account.lastObjection?.replace(/_/g, " ") ?? "none"}`
     : null;
+  const latencyMs = Date.now() - started;
+  const coachSource = whisper && llmConfigured() ? "llm_polished" : "local_playbook";
+
+  await emitPrismTrace({
+    model: coachSource === "llm_polished" ? process.env.LLM_MODEL ?? "llm" : "binder-local-playbook",
+    inputMessages: [
+      {
+        role: "system",
+        content:
+          "You are Binder, a real-time insurance sales coach. Give one immediately usable line or stay silent. Never invent pricing, coverage, carriers, or policy facts.",
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          account,
+          broker,
+          transcriptTail,
+        }),
+      },
+    ],
+    outputMessage: whisper ?? "SILENT",
+    latencyMs,
+    sessionId: body.sessionId,
+    agentId: "binder-live-coach",
+    agentName: "Binder Live Coach",
+    metadata: {
+      route: "/api/coach",
+      accountId: body.accountId,
+      brokerId: body.brokerId,
+      stage: state.stage,
+      speaker: state.speaker,
+      objection: state.objection,
+      objectionKind: state.objectionKind,
+      intervention: state.intervention,
+      coachSource,
+    },
+  });
+
   return NextResponse.json({
     ...state,
     whisper,
     accountHint,
-    latencyMs: Date.now() - started,
-    coachSource: whisper && llmConfigured() ? "llm_polished" : "local_playbook",
+    latencyMs,
+    coachSource,
+    prismConnected: prismConfigured(),
   });
 }
