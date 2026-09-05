@@ -31,9 +31,9 @@ const LINES: Record<
     return `Glad that's working. If you could change one thing about that relationship, what would it be?`;
   },
   no_time: () =>
-    `Understood — I'll be brief. Does Tuesday at 10 or Thursday at 2 work for 12 minutes?`,
-  not_interested: (a) =>
-    `I'll keep it short. ${renewalAsk(a)} If it's far out, I'll go.`,
+    `Understood. What would be a better time for a brief call?`,
+  not_interested: () =>
+    `Understood. Thank you for your time.`,
   call_back_later: () =>
     `Sure — what day should I try, and is this still the best number?`,
   already_renewed: () =>
@@ -56,7 +56,7 @@ export function lineForObjection(
 
 export function closeLine(account?: Account | null): string {
   const who = dm(account);
-  return `Ask for a 12-minute meeting with ${who}: Thursday 10 or Friday 2. Then stop talking.`;
+  return `Would a brief meeting with ${who} next week work?`;
 }
 
 export function discoveryLine(account?: Account | null): string {
